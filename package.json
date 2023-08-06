@@ -1,5 +1,5 @@
 {
-  "name": "voice-chat",
+  "name": "vcyarn",
   "version": "1.0.0",
   "description": "a simple voice chat",
   "main": "index.js",
