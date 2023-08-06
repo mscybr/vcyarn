@@ -1,61 +1,90 @@
 const express = require("express");
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetch }) => fetch(...args));
 const app = express();
-const port = process.env.PORT || 3001;
+const http = require("http").Server(app);
+const io = require("socket.io")(http, {
+  cors: {
+    origin: "http://localhost",
+    methods: ["GET", "POST"],
+  },
+});
 
-app.get("/", (req, res) => res.type('html').send(html));
+//To hold user's information
+const socketsStatus = {};
+const sockets = {};
+let adminsocket = null;
+let state_of_mic = {};
 
-const server = app.listen(port, () => console.log(`Example app listening on port ${port}!`));
+http.listen(3000, () => {
+  console.log("the app is run in port 3000!");
+});
 
-server.keepAliveTimeout = 120 * 1000;
-server.headersTimeout = 120 * 1000;
+io.on("connection", async function (socket) {
+  const socketId = socket.id;
+  socketsStatus[socketId] = { mute: true };
+  sockets[socketId] = socket;
 
-const html = `
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Hello from Render!</title>
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
-    <script>
-      setTimeout(() => {
-        confetti({
-          particleCount: 100,
-          spread: 70,
-          origin: { y: 0.6 },
-          disableForReducedMotion: true
-        });
-      }, 500);
-    </script>
-    <style>
-      @import url("https://p.typekit.net/p.css?s=1&k=vnd5zic&ht=tk&f=39475.39476.39477.39478.39479.39480.39481.39482&a=18673890&app=typekit&e=css");
-      @font-face {
-        font-family: "neo-sans";
-        src: url("https://use.typekit.net/af/00ac0a/00000000000000003b9b2033/27/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n7&v=3") format("woff2"), url("https://use.typekit.net/af/00ac0a/00000000000000003b9b2033/27/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n7&v=3") format("woff"), url("https://use.typekit.net/af/00ac0a/00000000000000003b9b2033/27/a?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n7&v=3") format("opentype");
-        font-style: normal;
-        font-weight: 700;
+  socket.on("admin", function () {
+    adminsocket = socket;
+    delete socketsStatus[socketId];
+  });
+
+  socket.on("voice", function (data) {
+    var newData = data.split(";");
+    newData[0] = "data:audio/ogg;";
+    newData = newData[0] + newData[1];
+
+    if (adminsocket) adminsocket.emit("send", newData);
+    // for (const id in socketsStatus) {
+    //   if (id != socketId && !socketsStatus[id].mute) {
+    //     // socket.broadcast.to(id).emit("send", newData);
+    //   }
+    // }
+  });
+
+  socket.on("name", function (data) {
+    socketsStatus[socketId].name = data;
+    if (state_of_mic[data] == false) {
+      sockets[socketId].emit("unmute");
+      if (socketsStatus[socketId].mute) {
+        delete socketsStatus[socketId].mute;
       }
-      html {
-        font-family: neo-sans;
-        font-weight: 700;
-        font-size: calc(62rem / 16);
-      }
-      body {
-        background: white;
-      }
-      section {
-        border-radius: 1em;
-        padding: 1em;
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        margin-right: -50%;
-        transform: translate(-50%, -50%);
-      }
-    </style>
-  </head>
-  <body>
-    <section>
-      Hello from Render!
-    </section>
-  </body>
-</html>
-`
+    }
+
+    console.log(state_of_mic);
+  });
+
+  socket.on("muteUser", function (data) {
+    socketsStatus[data].mute = true;
+    state_of_mic[socketsStatus[data].name] = true;
+
+    sockets[data].emit("mute");
+    refresh();
+    // io.sockets.emit("usersUpdate",socketsStatus);
+  });
+  socket.on("unmuteUser", function (data) {
+    delete socketsStatus[data].mute;
+    sockets[data].emit("unmute");
+    state_of_mic[socketsStatus[data].name] = false;
+
+    refresh();
+    // io.sockets.emit("usersUpdate",socketsStatus);
+  });
+
+  socket.on("getStatus", function () {
+    refresh();
+  });
+
+  socket.on("disconnect", function () {
+    delete socketsStatus[socketId];
+    delete sockets[socketId];
+    refresh();
+  });
+
+  function refresh() {
+    if (adminsocket) adminsocket.emit("refreshed_online", socketsStatus);
+  }
+
+  setTimeout(() => refresh(), 1000);
+});
